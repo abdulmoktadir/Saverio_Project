@@ -489,37 +489,15 @@ def fuzzy_df_to_nested_matrix(fuzzy_df: pd.DataFrame, criteria, alternatives):
 # FUZZY BONFERRONI CoCoSo
 # REVISED: USE DEFUZZIFIED SCoB AND PCoB FOR KIA/KIB/KIC/RANKING
 # ============================================================
-def normalize_cocoso_bonferroni(decision, types_bc):
-    n_alt = len(decision)
-    n_crit = len(types_bc)
-    norm = [[(0.0, 0.0, 0.0) for _ in range(n_crit)] for _ in range(n_alt)]
-
-    for j in range(n_crit):
-        typ = to_bc_label(types_bc[j])
-
-        if typ == "B":
-            max_u = max(decision[i][j][2] for i in range(n_alt))
-            max_u = safe_pos(max_u)
-            for i in range(n_alt):
-                l, m, u = decision[i][j]
-                norm[i][j] = (l / max_u, m / max_u, u / max_u)
-        else:
-            min_l = min(decision[i][j][0] for i in range(n_alt))
-            min_l = safe_pos(min_l)
-            for i in range(n_alt):
-                l, m, u = decision[i][j]
-                l = safe_pos(l)
-                m = safe_pos(m)
-                u = safe_pos(u)
-                norm[i][j] = (min_l / u, min_l / m, min_l / l)
-
-    return norm
-
-
 def compute_bonferroni(norm_matrix, weights, phi1=1.0, phi2=1.0):
     """
     SCoB uses outer power 1 / (phi1 + phi2)
     PCoB uses product form and then divides by (phi1 + phi2)
+
+    Fix:
+    - Do NOT force SCoB accumulated sums through safe_pos(...) before exponentiation.
+      That EPS floor distorts results when phi1 and phi2 change.
+    - Keep only minimal protection for the PCoB logarithm bases.
     """
     weights = safe_normalize_to_1(pd.Series(weights).astype(float).values)
 
@@ -529,9 +507,12 @@ def compute_bonferroni(norm_matrix, weights, phi1=1.0, phi2=1.0):
     if n_crit < 2:
         raise ValueError("At least two criteria are required for fuzzy Bonferroni CoCoSo.")
 
+    if phi1 <= 0 or phi2 <= 0:
+        raise ValueError("phi1 and phi2 must be positive.")
+
     scob = []
     pcob = []
-    exp_term = 1.0 / safe_pos(phi1 + phi2)
+    exp_term = 1.0 / (phi1 + phi2)
 
     for a in range(n_alt):
         s_l = 0.0
@@ -543,7 +524,12 @@ def compute_bonferroni(norm_matrix, weights, phi1=1.0, phi2=1.0):
         log_p_u = 0.0
 
         for i in range(n_crit):
-            wi = min(max(weights[i], EPS), 1.0 - EPS)
+            wi = weights[i]
+            if wi >= 1.0:
+                wi = 1.0 - EPS
+            elif wi <= 0.0:
+                wi = EPS
+
             denom = 1.0 - wi
 
             for j in range(n_crit):
@@ -556,26 +542,35 @@ def compute_bonferroni(norm_matrix, weights, phi1=1.0, phi2=1.0):
                 gi_l, gi_m, gi_u = norm_matrix[a][i]
                 gj_l, gj_m, gj_u = norm_matrix[a][j]
 
-                s_l += term * (safe_pos(gi_l) ** phi1) * (safe_pos(gj_l) ** phi2)
-                s_m += term * (safe_pos(gi_m) ** phi1) * (safe_pos(gj_m) ** phi2)
-                s_u += term * (safe_pos(gi_u) ** phi1) * (safe_pos(gj_u) ** phi2)
+                # --- SCoB / SBi ---
+                s_l += term * (gi_l ** phi1) * (gj_l ** phi2)
+                s_m += term * (gi_m ** phi1) * (gj_m ** phi2)
+                s_u += term * (gi_u ** phi1) * (gj_u ** phi2)
 
-                base_l = safe_pos(phi1 * gi_l + phi2 * gj_l)
-                base_m = safe_pos(phi1 * gi_m + phi2 * gj_m)
-                base_u = safe_pos(phi1 * gi_u + phi2 * gj_u)
+                # --- PCoB / PBi ---
+                # keep protection only for log bases
+                base_l = phi1 * gi_l + phi2 * gj_l
+                base_m = phi1 * gi_m + phi2 * gj_m
+                base_u = phi1 * gi_u + phi2 * gj_u
 
-                log_p_l += term * math.log(base_l)
-                log_p_m += term * math.log(base_m)
-                log_p_u += term * math.log(base_u)
+                log_p_l += term * math.log(max(base_l, EPS))
+                log_p_m += term * math.log(max(base_m, EPS))
+                log_p_u += term * math.log(max(base_u, EPS))
 
-        s_l = safe_pos(s_l) ** exp_term
-        s_m = safe_pos(s_m) ** exp_term
-        s_u = safe_pos(s_u) ** exp_term
+        # IMPORTANT FIX:
+        # Don't use safe_pos(s_l), safe_pos(s_m), safe_pos(s_u) here.
+        # That was causing the mismatch with Excel when phi1/phi2 changed.
+        if s_l < 0 or s_m < 0 or s_u < 0:
+            raise ValueError("Negative SCoB accumulation encountered; check normalized inputs.")
+
+        s_l = s_l ** exp_term
+        s_m = s_m ** exp_term
+        s_u = s_u ** exp_term
         scob.append((s_l, s_m, s_u))
 
-        p_l = math.exp(log_p_l) / safe_pos(phi1 + phi2)
-        p_m = math.exp(log_p_m) / safe_pos(phi1 + phi2)
-        p_u = math.exp(log_p_u) / safe_pos(phi1 + phi2)
+        p_l = math.exp(log_p_l) / (phi1 + phi2)
+        p_m = math.exp(log_p_m) / (phi1 + phi2)
+        p_u = math.exp(log_p_u) / (phi1 + phi2)
         pcob.append((p_l, p_m, p_u))
 
     return scob, pcob
