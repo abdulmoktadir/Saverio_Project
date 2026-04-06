@@ -487,7 +487,35 @@ def fuzzy_df_to_nested_matrix(fuzzy_df: pd.DataFrame, criteria, alternatives):
 
 # ============================================================
 # FUZZY BONFERRONI CoCoSo
+# REVISED: USE DEFUZZIFIED SCoB AND PCoB FOR KIA/KIB/KIC/RANKING
 # ============================================================
+def normalize_cocoso_bonferroni(decision, types_bc):
+    n_alt = len(decision)
+    n_crit = len(types_bc)
+    norm = [[(0.0, 0.0, 0.0) for _ in range(n_crit)] for _ in range(n_alt)]
+
+    for j in range(n_crit):
+        typ = to_bc_label(types_bc[j])
+
+        if typ == "B":
+            max_u = max(decision[i][j][2] for i in range(n_alt))
+            max_u = safe_pos(max_u)
+            for i in range(n_alt):
+                l, m, u = decision[i][j]
+                norm[i][j] = (l / max_u, m / max_u, u / max_u)
+        else:
+            min_l = min(decision[i][j][0] for i in range(n_alt))
+            min_l = safe_pos(min_l)
+            for i in range(n_alt):
+                l, m, u = decision[i][j]
+                l = safe_pos(l)
+                m = safe_pos(m)
+                u = safe_pos(u)
+                norm[i][j] = (min_l / u, min_l / m, min_l / l)
+
+    return norm
+
+
 def compute_bonferroni(norm_matrix, weights, phi1=1.0, phi2=1.0):
     """
     SCoB uses outer power 1 / (phi1 + phi2)
@@ -569,6 +597,7 @@ def compute_bonferroni(norm_matrix, weights, phi1=1.0, phi2=1.0):
         pcob.append((p_l, p_m, p_u))
 
     return scob, pcob
+
 
 def relative_significance(scob, pcob, pi=0.5):
     """
@@ -803,7 +832,7 @@ with tab1:
 
             D_candidate = D_candidate.iloc[: int(m), :]
             D_candidate.index = alt_names
-            D_df = D_candidate.map(parse_number)
+            D_df = D_candidate.applymap(parse_number)
 
             st.success("Decision matrix loaded.")
             st.dataframe(D_df, use_container_width=True)
@@ -892,7 +921,7 @@ with tab1:
             height=260,
             key="D_manual",
         )
-        D_df = D_edit.map(parse_number)
+        D_df = D_edit.applymap(parse_number)
 
         st.markdown("**Types (B/C), AL, WL, IT (per criterion)**")
         meta_default = pd.DataFrame(
