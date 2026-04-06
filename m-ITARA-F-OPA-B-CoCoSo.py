@@ -832,7 +832,7 @@ with tab1:
 
             D_candidate = D_candidate.iloc[: int(m), :]
             D_candidate.index = alt_names
-            D_df = D_candidate.applymap(parse_number)
+            D_df = D_candidate.map(parse_number)
 
             st.success("Decision matrix loaded.")
             st.dataframe(D_df, use_container_width=True)
@@ -921,7 +921,7 @@ with tab1:
             height=260,
             key="D_manual",
         )
-        D_df = D_edit.applymap(parse_number)
+        D_df = D_edit.map(parse_number)
 
         st.markdown("**Types (B/C), AL, WL, IT (per criterion)**")
         meta_default = pd.DataFrame(
