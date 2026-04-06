@@ -487,17 +487,15 @@ def fuzzy_df_to_nested_matrix(fuzzy_df: pd.DataFrame, criteria, alternatives):
 
 # ============================================================
 # FUZZY BONFERRONI CoCoSo
-# REVISED: USE DEFUZZIFIED SCoB AND PCoB FOR KIA/KIB/KIC/RANKING
 # ============================================================
 def compute_bonferroni(norm_matrix, weights, phi1=1.0, phi2=1.0):
     """
     SCoB uses outer power 1 / (phi1 + phi2)
     PCoB uses product form and then divides by (phi1 + phi2)
 
-    Fix:
-    - Do NOT force SCoB accumulated sums through safe_pos(...) before exponentiation.
-      That EPS floor distorts results when phi1 and phi2 change.
-    - Keep only minimal protection for the PCoB logarithm bases.
+    Fixed to match Excel better when phi1 and phi2 change:
+    - Do NOT force SCoB sums through safe_pos(...) before exponentiation
+    - Keep protection only where logarithms need strictly positive inputs
     """
     weights = safe_normalize_to_1(pd.Series(weights).astype(float).values)
 
@@ -542,13 +540,12 @@ def compute_bonferroni(norm_matrix, weights, phi1=1.0, phi2=1.0):
                 gi_l, gi_m, gi_u = norm_matrix[a][i]
                 gj_l, gj_m, gj_u = norm_matrix[a][j]
 
-                # --- SCoB / SBi ---
+                # SCoB
                 s_l += term * (gi_l ** phi1) * (gj_l ** phi2)
                 s_m += term * (gi_m ** phi1) * (gj_m ** phi2)
                 s_u += term * (gi_u ** phi1) * (gj_u ** phi2)
 
-                # --- PCoB / PBi ---
-                # keep protection only for log bases
+                # PCoB
                 base_l = phi1 * gi_l + phi2 * gj_l
                 base_m = phi1 * gi_m + phi2 * gj_m
                 base_u = phi1 * gi_u + phi2 * gj_u
@@ -557,12 +554,10 @@ def compute_bonferroni(norm_matrix, weights, phi1=1.0, phi2=1.0):
                 log_p_m += term * math.log(max(base_m, EPS))
                 log_p_u += term * math.log(max(base_u, EPS))
 
-        # IMPORTANT FIX:
-        # Don't use safe_pos(s_l), safe_pos(s_m), safe_pos(s_u) here.
-        # That was causing the mismatch with Excel when phi1/phi2 changed.
         if s_l < 0 or s_m < 0 or s_u < 0:
             raise ValueError("Negative SCoB accumulation encountered; check normalized inputs.")
 
+        # Critical fix: no safe_pos() here
         s_l = s_l ** exp_term
         s_m = s_m ** exp_term
         s_u = s_u ** exp_term
@@ -574,7 +569,6 @@ def compute_bonferroni(norm_matrix, weights, phi1=1.0, phi2=1.0):
         pcob.append((p_l, p_m, p_u))
 
     return scob, pcob
-
 
 def relative_significance(scob, pcob, pi=0.5):
     """
