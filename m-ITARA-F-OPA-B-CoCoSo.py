@@ -568,12 +568,12 @@ def compute_bonferroni(norm_matrix, weights, phi1=1.0, phi2=1.0):
                 gi_l, gi_m, gi_u = norm_matrix[a][i]
                 gj_l, gj_m, gj_u = norm_matrix[a][j]
 
-                # SCoB
+                # SCoB / SBi
                 s_l += term * (gi_l ** phi1) * (gj_l ** phi2)
                 s_m += term * (gi_m ** phi1) * (gj_m ** phi2)
                 s_u += term * (gi_u ** phi1) * (gj_u ** phi2)
 
-                # PCoB
+                # PCoB / PBi
                 base_l = phi1 * gi_l + phi2 * gj_l
                 base_m = phi1 * gi_m + phi2 * gj_m
                 base_u = phi1 * gi_u + phi2 * gj_u
